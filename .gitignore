@@ -1,0 +1,11 @@
+# PYCHARM
+.idea/
+
+# Python junk
+*.pyc
+
+# Secret files
+secret_*
+
+# Databases
+db.sqlite3
