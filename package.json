@@ -1,0 +1,27 @@
+{
+  "name": "TeamApp",
+  "version": "1.0.0",
+  "description": "TeamApp application for BetterGithubTeams.",
+  "main": "app.js",
+  "dependencies": {
+    "express": "^4.9.7",
+    "express-session": "^1.8.2",
+    "http": "^0.0.0",
+    "querystring": "^0.2.0",
+    "url": "^0.10.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BetterGitHubTeams/TeamApp.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/BetterGitHubTeams/TeamApp/issues"
+  },
+  "homepage": "https://github.com/BetterGitHubTeams/TeamApp"
+}

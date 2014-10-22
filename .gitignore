@@ -1,11 +1,6 @@
-# PYCHARM
-.idea/
+#NodeJS stuff
+npm-debug.log
+node_modules
 
-# Python junk
-*.pyc
-
-# Secret files
-secret_*
-
-# Databases
-db.sqlite3
+#Secret files
+secret.js
