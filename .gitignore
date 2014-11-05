@@ -1,6 +1,9 @@
-#NodeJS stuff
+# Node/NPM
 npm-debug.log
 node_modules
 
-#Secret files
-secret.js
+# WebStorm configuration
+.idea/
+
+# Secret Files
+TeamApp/Secret.json
