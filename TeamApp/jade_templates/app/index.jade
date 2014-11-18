@@ -1,0 +1,9 @@
+doctype html
+html(lang='en')
+   head
+      title App | BGT
+   body
+      include ../navbar
+      each org in GH_DETAILED_ORGS
+         a(href='/app/org/'+org.login)=org.name
+         | &nbsp;&nbsp;&nbsp;&nbsp;
