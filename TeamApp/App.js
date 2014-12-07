@@ -6,16 +6,23 @@ var QueryString = require('querystring');
 var Jade = require('jade');
 var Fs = require('fs');
 var Util = require('util');
+var _ = require('lodash');
+var Async = require('async');
 
 var GitHub = require('./GitHub');
 
 var App = Express();
 
+//require('request').debug = true;
+
 // *************************************** JADE COMPILATION ***************************************
 var jade_fns = {};
 jade_fns['/'] = Jade.compileFile('jade/index.jade');
-jade_fns['/dashboard'] = Jade.compileFile('jade/dashboard.jade');
-jade_fns['/org'] = Jade.compileFile('jade/org.jade');
+jade_fns['dashboard'] = Jade.compileFile('jade/dashboard.jade');
+jade_fns['org'] = Jade.compileFile('jade/org.jade');
+jade_fns['bgteam'] = Jade.compileFile('jade/bgteam.jade');
+jade_fns['bgteam-addusers'] = Jade.compileFile('jade/bgteam-addusers.jade');
+jade_fns['bgteam-addrepos'] = Jade.compileFile('jade/bgteam-addrepos.jade');
 
 // *************************************** GLOBALS ***************************************
 var secret_json = JSON.parse(Fs.readFileSync('Secret.json'));
@@ -33,23 +40,21 @@ App.use(CookieSession({
 }));
 
 App.use(function(req, res, next){
-    console.log(Util.format('%s - %s - %s', req.method, req.path, req.ip));
-
-    if(req.session.web_alerts == null) {
-        req.session.web_alerts = [];
-    }
+    console.log(Util.format('%s - %s - %s - token %s', req.method, req.path, req.ip, req.session.access_token));
 
     next();
 });
 
+App.use('/static', Express.static('static'));
 App.use('/bootstrap', Express.static('bower_components/bootstrap/dist'));
 App.use('/jquery', Express.static('bower_components/jquery/dist'));
 
 App.get('/', function (req, res) {
-    var locals = {
-        "authenticated": req.session.access_token != undefined
+    var ACCESS_TOKEN = req.session.access_token;
+    var LOCALS = {
+        "authenticated": ACCESS_TOKEN != null
     };
-    res.send( jade_fns['/'](locals) );
+    res.send( jade_fns['/'](LOCALS) );
 });
 
 App.get('/auth', function(req, res) {
@@ -86,83 +91,426 @@ App.get('/auth', function(req, res) {
 });
 
 App.get('/dashboard', function(req, res) {
-    if(req.session.access_token == null) {
-        res.redirect('/');
-        return;
-    }
-    var locals = {
-        "authenticated": req.session.access_token != null
+    var ACCESS_TOKEN = req.session.access_token;
+    if(ACCESS_TOKEN == null){  res.redirect('/'); return;  }
+    var LOCALS = {
+        "authenticated": ACCESS_TOKEN != null
     };
 
-    var WAIT_TODO = 2;
-    var WAIT_DONE = 0;
-    var WAIT_FUNC = function() {
-        WAIT_DONE++;
-        if(WAIT_DONE >= WAIT_TODO) {
-            res.send(jade_fns['/dashboard'](locals));
+    Async.parallel({
+        "orgs": function(callback){
+            GitHub.GetOrgs(ACCESS_TOKEN, function(err, orgs){
+                callback(err, orgs);
+            });
+        },
+        "json": function(callback){
+            GitHub.GetBGTJson(ACCESS_TOKEN, function(err, json){
+                callback(err, json);
+            });
         }
-    };
-
-    GitHub.GetOrgs(req.session.access_token, function(err, orgs){
-        locals.orgs = orgs;
-        WAIT_FUNC();
-    });
-
-    GitHub.GetBGTFile(req.session.access_token, function(err, file){
+    }, function(err, result){
         if(err){throw err;}
 
-        console.log(file);
-        locals.bgt_file = file;
-        WAIT_FUNC();
+        LOCALS.bgt_json = result.json;
+        LOCALS.orgs = result.orgs;
+
+        res.send(jade_fns['dashboard'](LOCALS));
     });
 });
 
-App.get('/org/:login', function(req, res){
-    res.send('org/login');
+App.get('/dashboard/org/:login', function(req, res){
+    var ACCESS_TOKEN = req.session.access_token;
+    if(ACCESS_TOKEN == null) {
+        res.redirect('/'); return;
+    }
+    var LOGIN = req.params.login;
+    var LOCALS = {
+        "authenticated": true
+    };
+
+    Async.parallel({
+        "json": function(callback){
+            GitHub.GetBGTJson(ACCESS_TOKEN, function(err, file){
+                callback(err, file);
+            });
+        },
+        "org": function(callback){
+            GitHub.GetOrg(LOGIN, ACCESS_TOKEN, function(err, org){
+                callback(err, org);
+            });
+        }
+    }, function(err, result){
+        if(err){throw err;}
+        if(result.json == null){throw Error('No BGT Json');}
+
+        if( _.has(result.json, LOGIN) ){
+            LOCALS.org_in_bgt = true;
+            LOCALS.bgteams = result.json[LOGIN];
+            LOCALS.org = result.org;
+
+            res.send( jade_fns['org'](LOCALS) );
+        } else {
+            LOCALS.org_in_bgt = false;
+            LOCALS.org = result.org;
+
+            res.send( jade_fns['org'](LOCALS) )
+        }
+    });
 });
 
+App.get('/dashboard/org/:login/bgteam/:bgteam', function(req, res){
+    var ACCESS_TOKEN = req.session.access_token;
+    var LOGIN = req.params.login;
+    var BGTEAM = req.params.bgteam;
+    if(ACCESS_TOKEN == null){  res.redirect('/'); return;  }
 
+    var LOCALS = {
+        "authenticated": ACCESS_TOKEN != null
+    };
+
+    Async.parallel({
+        "json": function(callback){
+            GitHub.GetBGTJson(ACCESS_TOKEN, function(err, json){
+                callback(err, json);
+            });
+        },
+        "org": function(callback){
+            GitHub.GetOrg(LOGIN, ACCESS_TOKEN, function(err, org){
+                callback(err, org);
+            });
+        }
+    }, function(err, result){
+        if(err){throw err;}
+        if(result.json == null){throw Error('BGT Json not found.');}
+
+        LOCALS.bgteam = result.json[LOGIN][BGTEAM];
+        LOCALS.org = result.org;
+        LOCALS.login = LOGIN;
+
+        res.send(jade_fns['bgteam'](LOCALS));
+    });
+});
+
+App.get('/dashboard/org/:login/bgteam/:bgteam/users', function(req, res){
+    var ACCESS_TOKEN = req.session.access_token;
+    var LOGIN = req.params.login;
+    var BGTEAM = req.params.bgteam;
+    var PAGE = req.query.page;
+    if(PAGE == null){ PAGE = 1; }
+    var LOCALS = {
+        "authenticated": ACCESS_TOKEN != null
+    };
+    if(ACCESS_TOKEN == null){res.redirect('/'); return;}
+
+    Async.parallel({
+        "memberlink": function(callback){
+            GitHub.GetOrgMembers(LOGIN, ACCESS_TOKEN, PAGE, function(err, members, pages){
+                callback(err, {"org_members": members, "pages": pages});
+            });
+        },
+        "json": function(callback){
+            GitHub.GetBGTJson(ACCESS_TOKEN, function(err, json){
+                callback(err, json);
+            });
+        },
+        "org": function(callback){
+            GitHub.GetOrg(LOGIN, ACCESS_TOKEN, function(err, org){
+                callback(err, org);
+            });
+        }
+    }, function(err, result){
+        if(err){throw err;}
+        if(result.json == null){throw Error('No BGT File.');}
+
+        LOCALS.org = result.org;
+        LOCALS.pages = result.memberlink.pages;
+        LOCALS.bgteam = result.json[LOGIN][BGTEAM];
+        LOCALS.bgt_json = result.json;
+        LOCALS.org_members = _.map(result.memberlink.org_members, function(mem){
+            mem.in_team = ( _.indexOf(LOCALS.bgteam.users, mem.login) != -1 );
+            return mem;
+        });
+        LOCALS.page = parseInt(PAGE);
+
+
+        res.send(jade_fns['bgteam-addusers'](LOCALS));
+    });
+});
+
+App.get('/dashboard/org/:login/bgteam/:bgteam/repos/:permission', function(req, res){
+    var ACCESS_TOKEN = req.session.access_token;
+    var LOGIN = req.params.login;
+    var BGTEAM = req.params.bgteam;
+    var PERMISSION = req.params.permission;
+    var PAGE = req.query.page;
+    if(PAGE == null){ PAGE = 1; }
+    var LOCALS = {
+        "authenticated": ACCESS_TOKEN != null
+    };
+    if(ACCESS_TOKEN == null){res.redirect('/'); return;}
+
+    Async.parallel({
+        "repolink": function(callback){
+            GitHub.GetOrgRepos(LOGIN, ACCESS_TOKEN, PAGE, function(err, repos, pages){
+                callback(err, {"org_repos": repos, "pages": pages});
+            });
+        },
+        "json": function(callback){
+            GitHub.GetBGTJson(ACCESS_TOKEN, function(err, json){
+                callback(err, json);
+            });
+        },
+        "org": function(callback){
+            GitHub.GetOrg(LOGIN, ACCESS_TOKEN, function(err, org){
+                callback(err, org);
+            });
+        }
+    }, function(err, result){
+        console.log('got');
+        if(err){throw err;}
+        if(result.json == null){throw Error('No BGT File.');}
+
+        LOCALS.org = result.org;
+        LOCALS.pages = result.repolink.pages;
+        LOCALS.bgteam = result.json[LOGIN][BGTEAM];
+        LOCALS.bgt_json = result.json;
+        LOCALS.org_repos = _.map(result.repolink.org_repos, function(rep){
+            var in_team = false;
+            for(var i = 0; i < LOCALS.bgteam[PERMISSION+'_repos'].length; i++){
+                var repo = LOCALS.bgteam[PERMISSION+'_repos'][i];
+                if(rep.owner.login == repo.owner && rep.name == repo.name) {
+                    in_team = true;
+                    break;
+                }
+            }
+            rep.in_team = in_team;
+            return rep;
+        });
+        LOCALS.page = parseInt(PAGE);
+        LOCALS.permission = PERMISSION;
+
+        res.send(jade_fns['bgteam-addrepos'](LOCALS));
+    });
+});
 
 App.get('/logout', function(req, res){
-    delete req.session.access_token;
+    if(req.session.access_token != null) {
+        delete req.session.access_token;
+    }
     res.redirect('/');
 });
 
 App.get('/create_bgt_file', function(req, res) {
-    if(req.session.access_token == null) {
-        res.redirect('/');
-        return;
-    }
+    var ACCESS_TOKEN = req.session.access_token;
+    if(ACCESS_TOKEN == null){  res.redirect('/'); return;  }
 
-    GitHub.CreateBGTFile(req.session.access_token, function(err){
+    GitHub.CreateBGTJson(ACCESS_TOKEN, function(err){
         if(err){throw err;}
         res.redirect('/dashboard');
     });
 });
 
 App.get('/delete_bgt_file', function(req, res) {
-    if(req.session.access_token == null) {
-        res.redirect('/');
-        return;
-    }
+    var ACCESS_TOKEN = req.session.access_token;
+    if(ACCESS_TOKEN == null){  res.redirect('/'); return;  }
 
-    GitHub.DeleteBGTFile(req.session.access_token, function(err){
+    GitHub.DeleteBGTJson(ACCESS_TOKEN, function(err){
         if(err){throw err;}
-
         res.redirect('/dashboard');
     });
 });
 
-App.get('/test', function(req, res){
-    GitHub.DeleteGist('ca513a3c0ab41901cb79', req.session.access_token, function(err){
+App.get('/insert_org/:login', function(req, res){
+    var ACCESS_TOKEN = req.session.access_token;
+    var LOGIN = req.params.login;
+    if(ACCESS_TOKEN == null) {
+        res.redirect('/');
+        return;
+    }
+
+    //Get File
+    GitHub.GetBGTJson(ACCESS_TOKEN, function(err, json){
+        if(err != null){res.redirect('/'); return;} //Error getting file
+        if(json == null){res.redirect('/dashboard'); return;} //File doesn't exist
+        if(_.has(json, LOGIN)){res.redirect('/'); return;} //Already has
+
+        GitHub.GetOrg(LOGIN, ACCESS_TOKEN, function(err, org){
+            if(err != null){throw err;}
+            json[LOGIN] = {};
+
+            //Apply changes to file
+            GitHub.UpdateBGTJson(json, ACCESS_TOKEN, function(err){
+                if(err != null){throw err;}
+
+                res.redirect('/dashboard/org/'+LOGIN);
+            });
+        });
+    });
+});
+
+App.get('/remove_org/:login', function(req, res){
+    var ACCESS_TOKEN = req.session.access_token;
+    var LOGIN = req.params.login;
+    if(ACCESS_TOKEN == null) {
+        res.redirect('/');
+        return;
+    }
+
+    GitHub.GetBGTJson(ACCESS_TOKEN, function(err, json){
+        if(err != null){throw err;}
+        if(json == null){throw err;}
+
+        delete json[LOGIN];
+
+        GitHub.UpdateBGTJson(json, ACCESS_TOKEN, function(err){
+            if(err != null){throw err;}
+
+            res.redirect('/dashboard/org/'+LOGIN);
+        })
+    });
+});
+
+App.get('/apply_changes/:login', function(req, res){
+    var LOGIN = req.params.login;
+    var ACCESS_TOKEN = req.session.access_token;
+    if(ACCESS_TOKEN == null){res.redirect('/'); return;}
+
+    GitHub.GetBGTJson(ACCESS_TOKEN, function(err, json){
+        if(err){throw err;}
+        if(json == null){throw Error('No BGT file.');}
+
+        var jorg = json[LOGIN];
+        for(var i = 0; i < jorg.length; i++) {
+            var team = jsorg[i];
+
+            if(team.read_id == null && team.read_repos.length > 0) {
+                //Create new
+                GitHub.CreateTeam()
+            }
+            else if(team.read_id != null) {
+                //Update
+
+            }
+        }
+    });
+});
+
+App.get('/dashboard/:login/add_bgt', function(req, res){
+    var LOGIN = req.params.login;
+    var ACCESS_TOKEN = req.session.access_token;
+    var BGTEAM_NAME = req.query.bgteam_name;
+    if(ACCESS_TOKEN == null){res.redirect('/'); return;}
+    if(BGTEAM_NAME == null){res.redirect('/dashboard'); return;}
+
+    GitHub.GetBGTJson(ACCESS_TOKEN, function(err, json){
+        if(err){throw err;}
+        if(json == null){throw Error('Did not find file.');}
+
+        //BGTeam already exists
+        if(_.has(json.LOGIN, BGTEAM_NAME)) {
+            res.redirect('/dashboard/org/'+LOGIN);
+        }
+        //BGT does not exist
+        else {
+            json[LOGIN][BGTEAM_NAME] = {
+                "name": BGTEAM_NAME,
+                "users": [],
+                "read_repos": [],
+                "read_id": null,
+                "write_repos": [],
+                "write_id": null,
+                "admin_repos": [],
+                "admin_id": null
+            };
+            GitHub.UpdateBGTJson(json, ACCESS_TOKEN, function(err){
+                if(err){throw err;}
+                res.redirect('/dashboard/org/'+LOGIN+'/bgteam/'+BGTEAM_NAME);
+            });
+        }
+    });
+});
+
+App.get('/toggle_user/:org_login/:bgteam/:user_login', function(req, res){
+    var ACCESS_TOKEN = req.session.access_token;
+    if(ACCESS_TOKEN == null){ res.redirect('/'); return;}
+
+    var ORGLOGIN = req.params.org_login;
+    var BGTEAM = req.params.bgteam;
+    var USERLOGIN = req.params.user_login;
+
+    GitHub.GetBGTJson(ACCESS_TOKEN, function(err, json){
         if(err){throw err;}
 
-        res.send('Deleted');
+        //If user not in, add
+        var findIndex = _.indexOf(json[ORGLOGIN][BGTEAM].users, USERLOGIN);
+        if(findIndex === -1) {
+            json[ORGLOGIN][BGTEAM].users.push(USERLOGIN);
+        } else {
+            json[ORGLOGIN][BGTEAM].users.splice(findIndex, 1);
+        }
+        GitHub.UpdateBGTJson(json, ACCESS_TOKEN, function(err){
+            if(err){throw err;}
+            res.redirect('/dashboard/org/'+ORGLOGIN+'/bgteam/'+BGTEAM+'/users');
+        });
+    });
+});
+
+App.get('/toggle_repo', function(req, res){
+    var ACCESS_TOKEN = req.session.access_token;
+    var PERMISSION = req.query.perm;
+    var BGTEAM = req.query.bgteam;
+    var ORGLOGIN = req.query.orglogin;
+    var OWNER = req.query.owner;
+    var REPO = req.query.repo;
+    if(ACCESS_TOKEN == null) {
+        res.redirect('/'); return;
+    }
+
+    Async.parallel({
+        "json": function(callback){
+            GitHub.GetBGTJson(ACCESS_TOKEN, function(err, json){
+                callback(err, json);
+            });
+        },
+        "repo": function(callback){
+            GitHub.GetRepo(OWNER, REPO, ACCESS_TOKEN, function(err, repo){
+                callback(err, repo);
+            });
+        }
+    }, function(err, result){
+        if(err){throw err;}
+        if(result.json == null){throw Error('No BGT file.');}
+
+        var json = result.json;
+
+        var perm = null;
+        switch(PERMISSION){
+            case 'read': perm = 'read_repos'; break;
+            case 'write': perm = 'write_repos'; break;
+            case 'admin': perm = 'admin_repos'; break;
+            default:
+                res.redirect('/');
+                return;
+        }
+
+        var value = {"owner": OWNER, "name": REPO};
+
+        //If user not in, add
+        var findIndex = _.indexOf(json[ORGLOGIN][BGTEAM][perm], value);
+        if(findIndex === -1) {
+            json[ORGLOGIN][BGTEAM][perm].push(value);
+        } else {
+            json[ORGLOGIN][BGTEAM][perm].splice(findIndex, 1);
+        }
+        GitHub.UpdateBGTJson(json, ACCESS_TOKEN, function(err){
+            if(err){throw err;}
+            res.redirect('/dashboard/org/'+ORGLOGIN+'/bgteam/'+BGTEAM+'/repos/'+PERMISSION);
+        });
     });
 });
 
 var Server = App.listen(3000, function () {
     var host = Server.address().address;
     var port = Server.address().port;
-    console.log(Util.format('Example app listening at http://%s:%s', host, port));
+    console.log(Util.format('BGT App listening at http://%s:%s', host, port));
 });

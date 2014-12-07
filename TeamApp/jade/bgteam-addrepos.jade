@@ -1,0 +1,35 @@
+extends base
+
+- var Qs = require('querystring');
+
+block head
+  title Repos | BGT
+block body
+  .row
+    .text-center
+      h1
+        a(href='/dashboard/org/' + org.login) #{org.name || org.login}
+        | /#{bgteam.name}
+  .row
+    .col-md-6.col-md-offset-3
+      .panel.panel-default
+        .panel-heading
+          h3.panel-title Add #{permission} Repos
+          if org_repos && org_repos.length > 0
+            .panel-body
+            each repo in org_repos
+              - var params = ("perm="+permission+'&bgteam='+bgteam.name+'&orglogin='+org.login+'&owner='+repo.owner.login+'&repo='+repo.name);
+              if repo.in_team == true
+                a(href='/toggle_repo?'+params).btn.btn-danger.btn-block.clearfix
+                  span.pull-left #{repo.name}
+                  span.pull-right #{repo.full_name}
+              else
+                a(href='/toggle_repo/?'+params).btn.btn-default.btn-block.clearfix
+                  span.pull-left #{repo.name}
+                  span.pull-right #{repo.full_name}
+        .panel-heading
+          .text-center
+            a(href='/dashboard/org/'+org.login+'/bgteam/'+bgteam.name+'/repos/'+permission+'?page='+(page - 1)).btn.btn-default
+              span.glyphicon.glyphicon-chevron-left
+            a(href='/dashboard/org/'+org.login+'/bgteam/'+bgteam.name+'/repos/'+permission+'?page=' + (page + 1)).btn.btn-default
+              span.glyphicon.glyphicon-chevron-right

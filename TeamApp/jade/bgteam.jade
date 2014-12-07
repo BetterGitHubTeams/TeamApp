@@ -1,0 +1,42 @@
+extends base
+block head
+  title #{bgteam.name} | BGT
+
+block body
+  .row
+    .text-center
+      h1
+        a(href='/dashboard/org/'+login) #{org.name || org.login}
+        | /#{bgteam.name}
+  .row
+    .col-md-6.col-md-offset-3
+      .panel.panel-default
+        .panel-heading.clearfix Users
+          a(href='/dashboard/org/'+org.login+'/bgteam/'+bgteam.name+'/users').btn.btn-default.btn-xs.pull-right Add/Remove
+        if bgteam.users && bgteam.users.length > 0
+          .panel-body
+            each user in bgteam.users
+              a(href='#').btn.btn-default.btn-block #{user}
+  .row
+    .col-md-6.col-md-offset-3
+      .panel.panel-default
+        .panel-heading.clearfix Read-Only Repos
+          a(href='/dashboard/org/'+org.login+'/bgteam/'+bgteam.name+'/repos/read').btn.btn-default.btn-xs.pull-right Add/Remove
+        if bgteam.read_repos && bgteam.read_repos.length > 0
+          .panel-body
+            each repo in bgteam.read_repos
+              a(href='#').btn.btn-default.btn-block #{repo.owner}/#{repo.name}
+
+        .panel-heading.clearfix Read/Write Repos
+          a(href='/dashboard/org/'+org.login+'/bgteam/'+bgteam.name+'/repos/write').btn.btn-default.btn-xs.pull-right Add/Remove
+        if bgteam.write_repos && bgteam.write_repos.length > 0
+          .panel-body
+            each repo in bgteam.write_repos
+              a(href='#').btn.btn-default.btn-block #{repo.owner}/#{repo.name}
+
+        .panel-heading.clearfix Admin Repos
+          a(href='/dashboard/org/'+org.login+'/bgteam/'+bgteam.name+'/repos/admin').btn.btn-default.btn-xs.pull-right Add/Remove
+        if bgteam.admin_repos && bgteam.admin_repos.length > 0
+          .panel-body
+            each repo in bgteam.admin_repos
+              a(href='#').btn.btn-default.btn-block #{repo.owner}/#{repo.name}
