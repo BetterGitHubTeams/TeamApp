@@ -424,10 +424,31 @@ App.get('/dashboard/:login/add_bgt', function(req, res){
             };
             GitHub.UpdateBGTJson(json, ACCESS_TOKEN, function(err){
                 if(err){throw err;}
-                res.redirect('/dashboard/org/'+LOGIN+'/bgteam/'+BGTEAM_NAME);
+                res.redirect('/dashboard/org/'+LOGIN);
             });
         }
     });
+});
+
+App.get('/remove_bgt/:login/:bgteam', function(req, res){
+    var ACCESS_TOKEN = req.session.access_token;
+    if(ACCESS_TOKEN == null){ res.redirect('/'); return; }
+
+    var LOGIN = req.params.login;
+    var BGTEAM = req.params.bgteam;
+
+    GitHub.GetBGTJson(ACCESS_TOKEN, function(err, json){
+        if(err){throw err;}
+        if(json == null){throw Error('No BGT file found.');}
+
+        delete json[LOGIN][BGTEAM];
+
+        GitHub.UpdateBGTJson(json, ACCESS_TOKEN, function(err){
+            if(err){throw err;}
+            res.redirect('/dashboard/org/'+LOGIN);
+        });
+    });
+
 });
 
 App.get('/toggle_user/:org_login/:bgteam/:user_login', function(req, res){

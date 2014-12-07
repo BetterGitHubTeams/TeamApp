@@ -40,3 +40,6 @@ block body
           .panel-body
             each repo in bgteam.admin_repos
               a(href='#').btn.btn-default.btn-block #{repo.owner}/#{repo.name}
+  .row
+    .col-md-6.col-md-offset-3
+      a(href='/remove_bgt/'+org.login+'/'+bgteam.name).btn.btn-danger.btn-block Delete Team
