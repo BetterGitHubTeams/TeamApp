@@ -7,7 +7,8 @@ block body
     .text-center
       h1
         a(href='/dashboard/org/' + org.login) #{org.name || org.login}
-        | /#{bgteam.name}
+        | /
+        a(href='/dashboard/org/'+org.login+'/bgteam/'+bgteam.name) #{bgteam.name}
 
   .row
     .col-md-6.col-md-offset-3

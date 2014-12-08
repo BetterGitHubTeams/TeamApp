@@ -37,7 +37,7 @@ block body
                               |  #{bgteam.admin_repos.length}
       .row
          .col-md-6.col-md-offset-3
-            a(href='#').btn.btn-success.btn-block Apply Changes
+            a(href='/apply_changes/'+org.login).btn.btn-success.btn-block Apply Changes
             a(href='/remove_org/'+org.login).btn.btn-danger.btn-block Remove #{org.login}
    else
       .row

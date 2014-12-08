@@ -375,24 +375,11 @@ App.get('/apply_changes/:login', function(req, res){
     var ACCESS_TOKEN = req.session.access_token;
     if(ACCESS_TOKEN == null){res.redirect('/'); return;}
 
-    GitHub.GetBGTJson(ACCESS_TOKEN, function(err, json){
+    GitHub.UpdateGitHubFromBGTJson(LOGIN, ACCESS_TOKEN, function(err){
         if(err){throw err;}
-        if(json == null){throw Error('No BGT file.');}
-
-        var jorg = json[LOGIN];
-        for(var i = 0; i < jorg.length; i++) {
-            var team = jsorg[i];
-
-            if(team.read_id == null && team.read_repos.length > 0) {
-                //Create new
-                GitHub.CreateTeam()
-            }
-            else if(team.read_id != null) {
-                //Update
-
-            }
-        }
+        console.log('Called back');
     });
+    res.redirect('/dashboard/org/'+LOGIN);
 });
 
 App.get('/dashboard/:login/add_bgt', function(req, res){
@@ -440,6 +427,16 @@ App.get('/remove_bgt/:login/:bgteam', function(req, res){
     GitHub.GetBGTJson(ACCESS_TOKEN, function(err, json){
         if(err){throw err;}
         if(json == null){throw Error('No BGT file found.');}
+
+        if(json[LOGIN][BGTEAM].read_id != null){
+            json._teamstodelete.push(json[LOGIN][BGTEAM].read_id);
+        }
+        if(json[LOGIN][BGTEAM].write_id != null){
+            json._teamstodelete.push(json[LOGIN][BGTEAM].write_id);
+        }
+        if(json[LOGIN][BGTEAM].admin_id != null){
+            json._teamstodelete.push(json[LOGIN][BGTEAM].admin_id);
+        }
 
         delete json[LOGIN][BGTEAM];
 
@@ -514,12 +511,14 @@ App.get('/toggle_repo', function(req, res){
                 return;
         }
 
-        var value = {"owner": OWNER, "name": REPO};
-
         //If user not in, add
-        var findIndex = _.indexOf(json[ORGLOGIN][BGTEAM][perm], value);
-        if(findIndex === -1) {
-            json[ORGLOGIN][BGTEAM][perm].push(value);
+
+        var findIndex = _.findIndex(json[ORGLOGIN][BGTEAM][perm], function(repo){
+            return repo.owner == OWNER && repo.name == REPO;
+        });
+        console.log(findIndex)
+        if(findIndex == -1) {
+            json[ORGLOGIN][BGTEAM][perm].push({"owner": OWNER, "name": REPO});
         } else {
             json[ORGLOGIN][BGTEAM][perm].splice(findIndex, 1);
         }

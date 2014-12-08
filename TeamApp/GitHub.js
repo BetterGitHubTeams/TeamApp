@@ -4,6 +4,7 @@ var _ = require('lodash');
 var PP = require('./PaginationParser');
 var Async = require('async');
 
+
 function GitHub() {
     this.base_uri = 'https://api.github.com';
     this.bgt_filename = 'bgt.json';
@@ -139,18 +140,21 @@ function GitHub() {
 
     // callback(err, created_team)
     this.CreateTeam = function(login, name, repos, permission, access_token, callback){
+        require('request').debug= true;
         var options = this.Options('/orgs/'+login+'/teams', access_token);
-        options.json = true;
         options.body = {
             "name": name,
             "repo_names": repos,
             "permission": permission
         };
+        options.json = true;
         Request.post(options, function(err, resp, body){
-            if(err || resp.statusCode != 201){callback(err || Error(resp.statusCode+' '+resp.statusCode)); return;}
-
-            callback(err, JSON.parse(body));
+            if(err){callback(err, null); return;}
+            console.log(JSON.stringify(resp, null, 2));
+            if(resp.statusCode != 201){callback(Error(resp.statusCode+' '+resp.statusText), null); return;}
+            callback(err, body);
         });
+        require('request').debug= false;
     };
 
     // callback(err);
@@ -158,7 +162,20 @@ function GitHub() {
         var options = this.Options('/teams/'+id+'/memberships/'+username, access_token);
 
         Request.put(options, function(err, resp, body){
-            if(err){throw err;}
+            if(err){callback(err);}
+            callback(null);
+        });
+    };
+
+    // callback(err);
+    this.DeleteTeam = function(id, access_token, callback){
+        var options = this.Options('/teams/'+id, access_token);
+
+        Request.del(options, function (err, resp, body) {
+            if(err){ callback(err, null); return;}
+            if(resp.statusCode != 204){ callback(Error(resp.statusCode+' '+resp.statusText), null); return;}
+
+            callback(null);
         });
     };
 
@@ -297,7 +314,7 @@ function GitHub() {
             var files = {};
             var desc = 'This is the Better Github Teams gist. Please don\'t modify this file.';
             files[self.bgt_filename] = {
-                "content": '{}'
+                "content": '{"_teamstodelete":[]}'
             };
 
             self.CreateGist(files, desc, false, access_token, function(err, data){
@@ -339,6 +356,170 @@ function GitHub() {
             self._patch('/gists/'+id, body, 200, access_token, function(err, body){
                 callback(err);
             });
+        });
+    };
+
+    this._update_read = function(login, bgteam, access_token, callback) {
+        var self = this;
+        var repos = _.map(bgteam.read_repos, function(repo){
+            return repo.owner+'/'+repo.name; // owner/repo
+        });
+        if(bgteam.read_id == null) {//CREATE TEAM IF NULL
+            self.CreateTeam(login, 'BGT-'+bgteam.name+'-READ', repos, 'pull', access_token, function(err, team){
+                if(err){  callback(err, null);  }
+                else{  callback(err, team.id);  }
+            });
+        }
+        else {//DELETE AND RECREATE
+            self.DeleteTeam(bgteam.read_id, access_token, function(err){
+                if(err){  callback(err, null);  }
+                else {
+                    self.CreateTeam(login, 'BGT-'+bgteam.name+'-READ', repos, 'pull', access_token, function(err, team){
+                        if(err){  callback(err, null);  }
+                        else{  callback(err, team.id);  }
+                    });
+                }
+            });
+        }
+    };
+
+    this._update_write = function(login, bgteam, access_token, callback) {
+        var self = this;
+        var repos = _.map(bgteam.write_repos, function(repo){
+            return repo.owner+'/'+repo.name; // owner/repo
+        });
+        if(bgteam.write_id == null) {//CREATE TEAM IF NULL
+            self.CreateTeam(login, 'BGT-'+bgteam.name+'-WRITE', repos, 'push', access_token, function(err, team){
+                if(err){  callback(err, null);  }
+                else{  callback(err, team.id);  }
+            });
+        }
+        else {//DELETE AND RECREATE
+            self.DeleteTeam(bgteam.write_id, access_token, function(err){
+                if(err){  callback(err, null);  }
+                else {
+                    self.CreateTeam(login, 'BGT-'+bgteam.name+'-WRITE', repos, 'push', access_token, function(err, team){
+                        if(err){  callback(err, null);  }
+                        else{  callback(err, team.id);  }
+                    });
+                }
+            });
+        }
+    };
+
+    this._update_admin = function(login, bgteam, access_token, callback) {
+        var self = this;
+        var repos = _.map(bgteam.admin_repos, function(repo){
+            return repo.owner+'/'+repo.name; // owner/repo
+        });
+        if(bgteam.admin_id == null) {//CREATE TEAM IF NULL
+            self.CreateTeam(login, 'BGT-'+bgteam.name+'-ADMIN', repos, 'admin', access_token, function(err, team){
+                if(err){  callback(err, null);  }
+                else{  callback(err, team.id);  }
+            });
+        }
+        else {//DELETE AND RECREATE
+            self.DeleteTeam(bgteam.admin_id, access_token, function(err){
+                if(err){  callback(err, null);  }
+                else {
+                    self.CreateTeam(login, 'BGT-'+bgteam.name+'-ADMIN', repos, 'admin', access_token, function(err, team){
+                        if(err){  callback(err, null);  }
+                        else{  callback(err, team.id);  }
+                    });
+                }
+            });
+        }
+    };
+
+    // callback(err);
+    this.UpdateGitHubFromBGTJson = function(login, access_token, callback){
+        var self = this;
+
+        self.GetBGTJson(access_token, function(err, json){
+            if(err){ throw err;}
+
+            if(Object.keys(json[login]).length > 0){
+                _.forOwn(json[login], function(bgteam){    //For each BGTeam
+
+                    Async.parallel({
+                        "read_id": function(callback1){
+                            self._update_read(login, bgteam, access_token, function(err, id){
+                                callback1(err, id);
+                            });
+                        },
+                        "write_id": function(callback1){
+                            self._update_write(login, bgteam, access_token, function(err, id){
+                                callback1(err, id);
+                            });
+                        },
+                        "admin_id": function(callback1){
+                            self._update_admin(login, bgteam, access_token, function(err, id){
+                                callback1(err, id);
+                            });
+                        }
+                    }, function(err, result){
+                        if(err){throw err;}
+
+                        //Set team IDS
+                        json[login][bgteam.name].read_id = result.read_id;
+                        json[login][bgteam.name].write_id = result.write_id;
+                        json[login][bgteam.name].admin_id = result.admin_id;
+
+                        //Add users
+                        _.forEach(json[login][bgteam.name].users, function(username){
+                            if(result.read_id != null){
+                                self.AddMemberToTeam(result.read_id, username, access_token, function(err){
+                                    if(err){throw err;}
+                                });
+                            }
+                            if(result.write_id != null) {
+                                self.AddMemberToTeam(result.write_id, username, access_token, function(err){
+                                    if(err){throw err;}
+                                });
+                            }
+                            if(result.admin_id != null) {
+                                self.AddMemberToTeam(result.admin_id, username, access_token, function(err){
+                                    if(err){throw err;}
+                                });
+                            }
+                        });
+
+                        //Delete to_delete
+                        _.forEach(json._teamstodelete, function(team_id){
+                            self.DeleteTeam(team_id, access_token, function(err){
+                                if(err){throw err;}
+                            });
+                        });
+                        json._teamstodelete= [];
+
+                        self.UpdateBGTJson(json, access_token, function(err){
+                            if(err){throw err;}
+                        });
+                    });
+                });
+                callback(null);
+            }
+            else {
+                //Delete to_delete
+                self.GetBGTJson(access_token, function(err, json){
+                    if(err){callback(err); return;}
+                    if(json == null){callback(Error('No BGT json found.')); return;}
+
+                    _.forEach(json._teamstodelete, function(team_id){
+                        self.DeleteTeam(team_id, access_token, function(err){
+                            if(err){throw err;}
+                            console.log('Deleted');
+                        });
+                    });
+
+                    json._teamstodelete= [];
+
+                    self.UpdateBGTJson(json, access_token, function(err){
+                        if(err){callback(err); return;}
+                        callback(null);
+                    });
+                });
+            }
         });
     };
 }
